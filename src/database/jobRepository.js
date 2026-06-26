@@ -99,6 +99,7 @@ function normalizeJobPayload(job, companyId = null) {
     employment_type: job.employment_type || job.employmentType || null,
     work_mode: job.work_mode || job.workMode || job.work_type || null,
     salary: job.salary || null,
+    work_mode: job.work_mode,
     description: job.description || null,
     summary: job.summary || null,
     skills: job.skills || null,

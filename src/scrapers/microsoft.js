@@ -63,6 +63,32 @@ function extractSalary(text) {
   return match[1].trim();
 }
 
+function extractWorkMode(text) {
+  if (!text || typeof text !== "string") return "onsite";
+
+  const value = text.toLowerCase();
+
+  if (
+    value.includes("100% remote") ||
+    value.includes("fully remote") ||
+    value.includes("remote only") ||
+    value.includes("work from home") ||
+    value.includes("remote")
+  ) {
+    return "remote";
+  }
+
+  if (
+    value.includes("hybrid") ||
+    value.includes("flexible work") ||
+    value.includes("flexible workplace")
+  ) {
+    return "hybrid";
+  }
+
+  return "onsite";
+}
+
 function extractSkillsFromText(text) {
   if (!text || typeof text !== 'string') return [];
 
@@ -134,6 +160,7 @@ async function normalizeDetails(data, applyUrl) {
     experience: extractExperience(description || ''),
     salary: extractSalary(description || ''),
     skills: [],
+    work_mode: null,
   };
 
   const pageDetails = await scrapeJobDetailPage(applyUrl);
@@ -171,6 +198,10 @@ async function normalizeDetails(data, applyUrl) {
   if (!details.salary && pageDetails.bodyText) {
     details.salary = extractSalary(pageDetails.bodyText);
   }
+
+  details.work_mode = extractWorkMode(
+    `${description || ""}\n${pageDetails.bodyText || ""}`
+);
 
   return details;
 }
