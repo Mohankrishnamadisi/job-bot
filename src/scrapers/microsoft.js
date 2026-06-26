@@ -197,6 +197,37 @@ function normalizeJob(position) {
     is_active: true,
   };
 }
+function isIndiaJob(location) {
+  if (!location) return false;
+
+  return location.toLowerCase().includes("india");
+}
+
+function isRemoteJob(job) {
+  const text = `
+    ${job.location || ""}
+    ${job.work_mode || ""}
+    ${job.description || ""}
+  `.toLowerCase();
+
+  return (
+    text.includes("remote") ||
+    text.includes("work from home") ||
+    text.includes("home office")
+  );
+}
+
+function shouldSaveJob(job) {
+  if (isIndiaJob(job.location)) {
+    return true;
+  }
+
+  if (isRemoteJob(job)) {
+    return true;
+  }
+
+  return false;
+}
 
 function extractPositions(responseData) {
   if (!responseData || typeof responseData !== 'object') return [];
@@ -408,8 +439,15 @@ async function scrapeMicrosoftJobs(query = '', location = '', fullSync = false) 
   try {
     enrichmentSummary = await enrichOnlyNewJobs(newJobs);
     if (enrichmentSummary.enriched.length) {
-      const saveResult = await saveJobs(enrichmentSummary.enriched);
-      if (saveResult.error) logger.error(`Failed to save enriched new jobs: ${saveResult.error.message}`);
+
+    // Remote jobs india code
+    // const jobsToSave = enrichmentSummary.enriched.filter(job => shouldSaveJob(job));
+    // logger.info(`Jobs after India/Remote filter: ${jobsToSave.length}`);
+    // const saveResult = await saveJobs(jobsToSave);
+
+    logger.info(`Saving all enriched jobs: ${enrichmentSummary.enriched.length}`);
+    await saveJobs(enrichmentSummary.enriched);
+
     }
   } catch (err) {
     logger.error(`Enrichment failed: ${err.message}`);
@@ -459,7 +497,12 @@ async function scrapeMicrosoftJobs(query = '', location = '', fullSync = false) 
 
   const enrichedMap = new Map((enrichmentSummary.enriched || []).map((j) => [j.apply_url, j]));
   const result = allJobs.map((j) => enrichedMap.get(j.apply_url) || j);
-  return { result, stats: { pageCount, totalCount, totalFound: allJobs.length, newCount: newJobs.length, updatedCount: updates.length, removedCount: removedApplyUrls.length } };
-}
+
+    const filteredResult = result.filter((job) => shouldSaveJob(job));
+
+    return {
+    result: filteredResult,
+    stats: { pageCount, totalCount, totalFound: allJobs.length, newCount: newJobs.length, updatedCount: updates.length, removedCount: removedApplyUrls.length } };
+    }
 
 module.exports = { scrapeMicrosoftJobs };

@@ -5,7 +5,7 @@ async function runTest() {
 
   try {
     console.log('Starting Microsoft scraper test...');
-    const { result, stats } = await scrapeMicrosoftJobs();
+    const { result, stats } = await scrapeMicrosoftJobs("", "India");
     const duration = Date.now() - start;
 
     console.log(`\nSearch pages: ${stats.pageCount}`);
