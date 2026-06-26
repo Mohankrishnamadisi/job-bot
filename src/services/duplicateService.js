@@ -1,10 +1,6 @@
 const supabase = require('../config/supabase');
 const logger = require('../utils/logger');
 
-function buildTitleCompanyKey(job) {
-  return `${String(job.title).trim().toLowerCase()}::${String(job.company).trim().toLowerCase()}`;
-}
-
 function normalizeJob(job) {
   if (!job || typeof job !== 'object') {
     return null;
@@ -12,77 +8,54 @@ function normalizeJob(job) {
 
   return {
     title: job.title?.trim() || null,
-    company: job.company?.trim() || null,
     location: job.location?.trim() || null,
     experience: job.experience || null,
     description: job.description || null,
     applyUrl: job.applyUrl || job.apply_url || null,
+    source: job.source || null,
   };
 }
 
 function validateJob(job) {
-  return job && job.title && job.company;
-}
-
-function buildDuplicateCondition(jobs) {
-  const conditions = [];
-
-  jobs.forEach((job) => {
-    if (job.applyUrl) {
-      conditions.push(`apply_url.eq.${encodeURIComponent(job.applyUrl)}`);
-    }
-
-    if (job.title && job.company) {
-      const title = encodeURIComponent(job.title);
-      const company = encodeURIComponent(job.company);
-      conditions.push(`and(title.eq.${title},company.eq.${company})`);
-    }
-  });
-
-  return conditions.length ? conditions.join(',') : null;
+  return job && job.applyUrl;
 }
 
 async function fetchExistingJobs(jobs) {
   const applyUrls = [];
-  const companies = [];
-  const titles = [];
 
   jobs.forEach((job) => {
     if (job.applyUrl) {
       applyUrls.push(job.applyUrl);
     }
-    if (job.company) {
-      companies.push(job.company);
-    }
-    if (job.title) {
-      titles.push(job.title);
-    }
   });
 
-  const conditions = [];
-  if (applyUrls.length) {
-    conditions.push(`apply_url.in.(${applyUrls.map((value) => encodeURIComponent(value)).join(',')})`);
-  }
-  if (companies.length) {
-    conditions.push(`company.in.(${companies.map((value) => encodeURIComponent(value)).join(',')})`);
-  }
-  if (titles.length) {
-    conditions.push(`title.in.(${titles.map((value) => encodeURIComponent(value)).join(',')})`);
+  if (!applyUrls.length) {
+    return [];
   }
 
-  const query = supabase.from('jobs').select('id,apply_url,title,company');
-  if (conditions.length) {
-    query.or(conditions.join(','));
+  const chunks = [];
+  const batchSize = 100;
+  for (let i = 0; i < applyUrls.length; i += batchSize) {
+    chunks.push(applyUrls.slice(i, i + batchSize));
   }
 
-  const { data, error } = await query;
+  const rows = [];
 
-  if (error) {
-    logger.error(`Error fetching existing jobs for deduplication: ${error.message}`);
-    throw error;
+  for (const chunk of chunks) {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id,apply_url,source')
+      .in('apply_url', chunk);
+
+    if (error) {
+      logger.error(`Error fetching existing jobs for deduplication: ${error.message}`);
+      throw error;
+    }
+
+    rows.push(...(data || []));
   }
 
-  return data || [];
+  return rows;
 }
 
 async function deduplicateJobs(jobs) {
@@ -105,23 +78,17 @@ async function deduplicateJobs(jobs) {
     const existingByApplyUrl = new Set(
       existingJobs.filter((row) => row.apply_url).map((row) => row.apply_url)
     );
-    const existingByTitleCompany = new Set(
-      existingJobs.map((row) => buildTitleCompanyKey(row))
-    );
 
     const uniqueJobs = [];
     const duplicateJobs = [];
 
     normalizedJobs.forEach((job) => {
       const applyUrlMatch = job.applyUrl && existingByApplyUrl.has(job.applyUrl);
-      const titleCompanyMatch = existingByTitleCompany.has(buildTitleCompanyKey(job));
 
-      if (applyUrlMatch || titleCompanyMatch) {
+      if (applyUrlMatch) {
         duplicateJobs.push({
           job,
-          reason: applyUrlMatch
-            ? 'applyUrl already exists'
-            : 'title and company already exists',
+          reason: 'applyUrl already exists',
         });
       } else {
         uniqueJobs.push(job);

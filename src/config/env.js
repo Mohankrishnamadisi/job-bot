@@ -10,6 +10,7 @@ if (envFound.error) {
 const {
   SUPABASE_URL,
   SUPABASE_KEY,
+  SUPABASE_SERVICE_ROLE_KEY,
   PLAYWRIGHT_HEADLESS,
   PLAYWRIGHT_BROWSER,
   PLAYWRIGHT_LAUNCH_TIMEOUT,
@@ -21,13 +22,16 @@ const {
   LOG_LEVEL,
 } = process.env;
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  throw new Error('SUPABASE_URL and SUPABASE_KEY must be defined in .env');
+const supabaseUrl = SUPABASE_URL?.trim();
+const supabaseKey = (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_KEY)?.trim();
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('SUPABASE_URL and SUPABASE_KEY (or SUPABASE_SERVICE_ROLE_KEY) must be defined in .env');
 }
 
 module.exports = {
-  supabaseUrl: SUPABASE_URL,
-  supabaseKey: SUPABASE_KEY,
+  supabaseUrl,
+  supabaseKey,
   playwrightHeadless: PLAYWRIGHT_HEADLESS !== 'false',
   playwrightBrowser: PLAYWRIGHT_BROWSER || 'chromium',
   playwrightLaunchTimeout: Number(PLAYWRIGHT_LAUNCH_TIMEOUT) || 30000,

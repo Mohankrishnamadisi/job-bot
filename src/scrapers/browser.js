@@ -52,9 +52,17 @@ async function connectBrowser() {
 
 async function newPage() {
   const browser = await connectBrowser();
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  const page = await context.newPage();
   page.setDefaultTimeout(playwrightPageTimeout);
   page.setDefaultNavigationTimeout(playwrightPageTimeout);
+
+  const originalClose = page.close.bind(page);
+  page.close = async () => {
+    await originalClose().catch(() => {});
+    await context.close().catch(() => {});
+  };
+
   return page;
 }
 
