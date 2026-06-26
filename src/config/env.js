@@ -12,6 +12,10 @@ const {
   SUPABASE_KEY,
   PLAYWRIGHT_HEADLESS,
   PLAYWRIGHT_BROWSER,
+  PLAYWRIGHT_LAUNCH_TIMEOUT,
+  PLAYWRIGHT_PAGE_TIMEOUT,
+  PLAYWRIGHT_LAUNCH_RETRIES,
+  PLAYWRIGHT_LAUNCH_RETRY_DELAY,
   JOB_SCRAPE_CRON,
   LOG_LEVEL,
 } = process.env;
@@ -25,6 +29,10 @@ module.exports = {
   supabaseKey: SUPABASE_KEY,
   playwrightHeadless: PLAYWRIGHT_HEADLESS !== 'false',
   playwrightBrowser: PLAYWRIGHT_BROWSER || 'chromium',
+  playwrightLaunchTimeout: Number(PLAYWRIGHT_LAUNCH_TIMEOUT) || 30000,
+  playwrightPageTimeout: Number(PLAYWRIGHT_PAGE_TIMEOUT) || 30000,
+  playwrightLaunchRetries: Number(PLAYWRIGHT_LAUNCH_RETRIES) || 3,
+  playwrightLaunchRetryDelay: Number(PLAYWRIGHT_LAUNCH_RETRY_DELAY) || 1000,
   jobScrapeCron: JOB_SCRAPE_CRON || '0 0 * * *',
   logLevel: LOG_LEVEL || 'info',
 };

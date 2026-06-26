@@ -1,26 +1,8 @@
-const { chromium, firefox, webkit } = require('playwright');
-const { playwrightHeadless, playwrightBrowser } = require('../config/env');
 const logger = require('../utils/logger');
-
-const browsers = {
-  chromium,
-  firefox,
-  webkit,
-};
-
-async function createBrowser() {
-  const browserType = browsers[playwrightBrowser];
-
-  if (!browserType) {
-    throw new Error(`Unsupported PLAYWRIGHT_BROWSER value: ${playwrightBrowser}`);
-  }
-
-  return browserType.launch({ headless: playwrightHeadless });
-}
+const { newPage } = require('./browser');
 
 async function companyScraper() {
-  const browser = await createBrowser();
-  const page = await browser.newPage();
+  const page = await newPage();
 
   try {
     logger.info('Running company scraper');
@@ -40,7 +22,6 @@ async function companyScraper() {
     throw error;
   } finally {
     await page.close().catch(() => {});
-    await browser.close().catch(() => {});
   }
 }
 
