@@ -1,33 +1,77 @@
 const cron = require('node-cron');
-const { jobScrapeCron } = require('../config/env');
 const logger = require('../utils/logger');
+const { companyCareerUrls } = require('../config/env');
 const { runScrapers } = require('../scrapers');
-const { deduplicateAndValidate } = require('../services/duplicateService');
-const { insertJobs } = require('../database/jobRepository');
+const { deduplicateJobs } = require('../services/duplicateService');
+const { saveJobs } = require('../database/jobRepository');
+
+const JOB_SCHEDULES = ['0 8 * * *', '0 13 * * *', '0 18 * * *'];
+
+function normalizeJobKey(job) {
+  const applyUrl = job.applyUrl?.trim().toLowerCase();
+  const titleCompany = `${job.title?.trim().toLowerCase() || ''}::${job.company?.trim().toLowerCase() || ''}`;
+  return applyUrl || titleCompany;
+}
+
+function deduplicateScrapedJobs(jobs) {
+  const seen = new Set();
+  return jobs.filter((job) => {
+    const key = normalizeJobKey(job);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
 
 async function runJobPipeline() {
+  logger.info('Starting scheduled job pipeline');
+
+  if (!Array.isArray(companyCareerUrls) || companyCareerUrls.length === 0) {
+    logger.warn('No company career URLs configured for scheduler');
+    return;
+  }
+
   try {
-    logger.info('Starting scheduled job pipeline');
+    const scrapedJobs = await runScrapers(companyCareerUrls);
+    const uniqueScrapedJobs = deduplicateScrapedJobs(scrapedJobs);
 
-    const companies = await runScrapers();
-    const validJobs = await deduplicateAndValidate(companies);
-
-    if (validJobs.length === 0) {
-      logger.warn('No valid jobs found after deduplication');
+    if (uniqueScrapedJobs.length === 0) {
+      logger.warn('No jobs found after scraping');
       return;
     }
 
-    await insertJobs(validJobs);
-    logger.info(`Scheduled pipeline completed with ${validJobs.length} jobs inserted`);
+    const { uniqueJobs, duplicateJobs, duplicateCount } = await deduplicateJobs(uniqueScrapedJobs);
+
+    if (duplicateCount > 0) {
+      logger.info(`Duplicate detection skipped ${duplicateCount} jobs`);
+    }
+
+    if (uniqueJobs.length === 0) {
+      logger.info('No new jobs to save after duplicate detection');
+      return;
+    }
+
+    const result = await saveJobs(uniqueJobs);
+    if (result.error) {
+      logger.error(`Failed to save jobs: ${result.error.message}`);
+      return;
+    }
+
+    logger.info(`Scheduled pipeline completed: ${result.data.length} new jobs saved`);
   } catch (error) {
     logger.error(`Scheduled pipeline error: ${error.message}`);
   }
 }
 
 function scheduleJobs() {
-  logger.info(`Scheduling job pipeline with cron expression: ${jobScrapeCron}`);
-  cron.schedule(jobScrapeCron, () => {
-    runJobPipeline();
+  JOB_SCHEDULES.forEach((cronExpression) => {
+    cron.schedule(cronExpression, () => {
+      runJobPipeline();
+    });
+    logger.info(`Scheduled job pipeline for cron expression: ${cronExpression}`);
   });
 }
 

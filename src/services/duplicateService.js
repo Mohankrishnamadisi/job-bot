@@ -43,14 +43,39 @@ function buildDuplicateCondition(jobs) {
 }
 
 async function fetchExistingJobs(jobs) {
-  const conditionString = buildDuplicateCondition(jobs);
-  if (!conditionString) {
-    return [];
+  const applyUrls = [];
+  const companies = [];
+  const titles = [];
+
+  jobs.forEach((job) => {
+    if (job.applyUrl) {
+      applyUrls.push(job.applyUrl);
+    }
+    if (job.company) {
+      companies.push(job.company);
+    }
+    if (job.title) {
+      titles.push(job.title);
+    }
+  });
+
+  const conditions = [];
+  if (applyUrls.length) {
+    conditions.push(`apply_url.in.(${applyUrls.map((value) => encodeURIComponent(value)).join(',')})`);
+  }
+  if (companies.length) {
+    conditions.push(`company.in.(${companies.map((value) => encodeURIComponent(value)).join(',')})`);
+  }
+  if (titles.length) {
+    conditions.push(`title.in.(${titles.map((value) => encodeURIComponent(value)).join(',')})`);
   }
 
-  const { data, error } = await supabase
-    .from('jobs')
-    .select('id,apply_url,title,company');
+  const query = supabase.from('jobs').select('id,apply_url,title,company');
+  if (conditions.length) {
+    query.or(conditions.join(','));
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     logger.error(`Error fetching existing jobs for deduplication: ${error.message}`);

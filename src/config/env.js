@@ -16,6 +16,7 @@ const {
   PLAYWRIGHT_PAGE_TIMEOUT,
   PLAYWRIGHT_LAUNCH_RETRIES,
   PLAYWRIGHT_LAUNCH_RETRY_DELAY,
+  COMPANY_CAREERS_URLS,
   JOB_SCRAPE_CRON,
   LOG_LEVEL,
 } = process.env;
@@ -33,6 +34,8 @@ module.exports = {
   playwrightPageTimeout: Number(PLAYWRIGHT_PAGE_TIMEOUT) || 30000,
   playwrightLaunchRetries: Number(PLAYWRIGHT_LAUNCH_RETRIES) || 3,
   playwrightLaunchRetryDelay: Number(PLAYWRIGHT_LAUNCH_RETRY_DELAY) || 1000,
+  companyCareerUrls:
+    COMPANY_CAREERS_URLS?.split(',').map((value) => value.trim()).filter(Boolean) || [],
   jobScrapeCron: JOB_SCRAPE_CRON || '0 0 * * *',
   logLevel: LOG_LEVEL || 'info',
 };
