@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const { newPage } = require('./browser');
 const {
   getJobsBySourceAndApplyUrls,
   saveJobs,
@@ -37,6 +38,143 @@ function parseRetryAfter(headerValue) {
   return null;
 }
 
+function parseEmploymentType(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const normalized = raw.replace(/_/g, ' ').toLowerCase();
+  if (/full[- ]?time/i.test(normalized) || normalized === 'full time') return 'Full-Time';
+  if (/part[- ]?time/i.test(normalized) || normalized === 'part time') return 'Part-Time';
+  if (/contract/i.test(normalized)) return 'Contract';
+  if (/intern/i.test(normalized)) return 'Intern';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function extractExperience(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/(\d+\+?\s*years?)(?:\s*(?:of\s*)?experience)?/i);
+  if (!match) return null;
+  return match[1].replace(/\s+/g, ' ').trim();
+}
+
+function extractSalary(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/(USD\s*\$[\d,]+\s*-\s*\$[\d,]+\s*per year|\$[\d,]+\s*-\s*\$[\d,]+\s*per year|USD\s*\$[\d,]+\s*-\s*\$[\d,]+)/i);
+  if (!match) return null;
+  return match[1].trim();
+}
+
+function extractSkillsFromText(text) {
+  if (!text || typeof text !== 'string') return [];
+
+  const skillBlockMatch = text.match(/Top skills\s*([\s\S]{1,200})/i);
+  if (!skillBlockMatch) return [];
+
+  const rawLines = skillBlockMatch[1]
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const skills = [];
+  for (const line of rawLines) {
+    if (/^(Previously worked as|Insights from previous hires|Powered by|This site|Job description|Company and benefits|Job number|Date posted|Work site|Travel|Profession|Discipline|Role type|Employment type)$/i.test(line)) {
+      break;
+    }
+    if (/^Top skills$/i.test(line)) {
+      continue;
+    }
+    skills.push(line);
+  }
+
+  return skills;
+}
+
+async function scrapeJobDetailPage(applyUrl) {
+  if (!applyUrl) return { bodyText: null, ldJsonScripts: [], topSkills: [] };
+
+  let page;
+  try {
+    page = await newPage();
+    await page.goto(applyUrl, { waitUntil: 'networkidle', timeout: 60000 });
+
+    const [bodyText, ldJsonScripts, topSkills] = await Promise.all([
+      page.evaluate(() => document.body.innerText),
+      page.$$eval('script[type="application/ld+json"]', (nodes) => nodes.map((node) => node.textContent || '')),
+      page.evaluate(() => {
+        const heading = Array.from(document.querySelectorAll('*')).find((el) => el.innerText && el.innerText.trim().toLowerCase() === 'top skills');
+        if (!heading) return [];
+        const section = heading.parentElement || heading;
+        const lines = section.innerText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+        const startIndex = lines.findIndex((line) => /^top skills$/i.test(line));
+        if (startIndex === -1) return [];
+        return lines.slice(startIndex + 1).filter((line) => !/^(Previously worked as|Insights from previous hires|Powered by|This site|Job description|Company and benefits|Job number|Date posted|Work site|Travel|Profession|Discipline|Role type|Employment type)$/i.test(line));
+      }),
+    ]);
+
+    return { bodyText, ldJsonScripts, topSkills };
+  } catch (error) {
+    logger.warn(`Playwright detail scrape failed for ${applyUrl}: ${error.message}`);
+    return { bodyText: null, ldJsonScripts: [], topSkills: [] };
+  } finally {
+    if (page) {
+      await page.close().catch(() => {});
+    }
+  }
+}
+
+async function normalizeDetails(data, applyUrl) {
+  if (!data || typeof data !== 'object') return {};
+
+  const description = data.jobDescription || data.job_description || data.description || null;
+  const publicUrl = data.publicUrl || data.public_url || null;
+  const apiEmploymentType = data.employmentType || data.employment_type || null;
+  const details = {
+    description,
+    publicUrl,
+    employment_type: parseEmploymentType(apiEmploymentType),
+    experience: extractExperience(description || ''),
+    salary: extractSalary(description || ''),
+    skills: [],
+  };
+
+  const pageDetails = await scrapeJobDetailPage(applyUrl);
+
+  for (const rawJson of pageDetails.ldJsonScripts) {
+    if (!rawJson) continue;
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (!details.employment_type && parsed.employmentType) {
+        details.employment_type = parseEmploymentType(parsed.employmentType);
+      }
+      if (!details.experience && parsed.description) {
+        details.experience = extractExperience(parsed.description);
+      }
+      if (!details.salary && parsed.description) {
+        details.salary = extractSalary(parsed.description);
+      }
+    } catch (error) {
+      // ignore invalid JSON blocks
+    }
+  }
+
+  if ((!details.skills || !details.skills.length) && pageDetails.topSkills.length) {
+    details.skills = pageDetails.topSkills;
+  }
+
+  if ((!details.skills || !details.skills.length) && pageDetails.bodyText) {
+    details.skills = extractSkillsFromText(pageDetails.bodyText);
+  }
+
+  if (!details.experience && pageDetails.bodyText) {
+    details.experience = extractExperience(pageDetails.bodyText);
+  }
+
+  if (!details.salary && pageDetails.bodyText) {
+    details.salary = extractSalary(pageDetails.bodyText);
+  }
+
+  return details;
+}
+
 function normalizeJob(position) {
   const positionId = position.position_id || position.id || null;
   const title = position.title || position.name || null;
@@ -57,14 +195,6 @@ function normalizeJob(position) {
     apply_url: applyUrl,
     status: 'open',
     is_active: true,
-  };
-}
-
-function normalizeDetails(data) {
-  if (!data || typeof data !== 'object') return {};
-  return {
-    description: data.jobDescription || data.job_description || data.description || null,
-    publicUrl: data.publicUrl || data.public_url || null,
   };
 }
 
@@ -233,12 +363,16 @@ async function enrichOnlyNewJobs(allJobs) {
         return job;
       }
 
-      const details = normalizeDetails(data.data || data);
+      const details = await normalizeDetails(data.data || data, job.apply_url);
       success += 1;
       return {
         ...job,
         description: details.description || job.description,
         apply_url: details.publicUrl || job.apply_url,
+        employment_type: details.employment_type || job.employment_type,
+        experience: details.experience || job.experience,
+        salary: details.salary || job.salary,
+        skills: details.skills.length ? details.skills : job.skills,
       };
     });
 

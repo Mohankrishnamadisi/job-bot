@@ -25,7 +25,71 @@ function normalizeTimestamp(value) {
   return null;
 }
 
-function normalizeJobPayload(job) {
+const companyIdCache = new Map();
+
+function normalizeCompanyText(value) {
+  if (!value) return null;
+  const normalized = String(value).trim();
+  return normalized.length === 0 ? null : normalized;
+}
+
+function getCompanyCacheKey(source, name) {
+    const normalizedName = normalizeCompanyText(name) || "";
+    return normalizedName.toLowerCase();
+}
+
+async function findOrCreateCompanyId(source, name) {
+  const companySource = normalizeCompanyText(source) || null;
+  const companyName = normalizeCompanyText(name || source) || null;
+
+  if (!companyName) {
+    return null;
+  }
+
+  const cacheKey = getCompanyCacheKey(companySource, companyName);
+  if (companyIdCache.has(cacheKey)) {
+    return companyIdCache.get(cacheKey);
+  }
+
+  try {
+    const { data: existing, error: lookupError } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('name', companyName)
+      .maybeSingle();
+
+    if (lookupError) {
+      logger.error(`Company lookup failed for ${companySource}/${companyName}: ${lookupError.message}`);
+    }
+
+    let companyId = existing?.id || null;
+
+    if (!companyId) {
+      const { data: inserted, error: insertError } = await supabase
+        .from('companies')
+        .insert([{ name: companyName }])
+        .select('id')
+        .maybeSingle();
+
+      if (insertError) {
+        logger.error(`Company insert failed for ${companySource}/${companyName}: ${insertError.message}`);
+      }
+
+      companyId = inserted?.id || null;
+    }
+
+    if (companyId) {
+      companyIdCache.set(cacheKey, companyId);
+    }
+
+    return companyId;
+  } catch (error) {
+    logger.error(`findOrCreateCompanyId unexpected failure for ${companySource}/${companyName}: ${error.message}`);
+    return null;
+  }
+}
+
+function normalizeJobPayload(job, companyId = null) {
   if (!job || typeof job !== 'object') return null;
 
   const payload = {
@@ -40,6 +104,7 @@ function normalizeJobPayload(job) {
     skills: job.skills || null,
     apply_url: job.apply_url || job.applyUrl || null,
     source: job.source || null,
+    company_id: companyId || job.company_id || null,
     posted_date: normalizeTimestamp(job.posted_date || job.postedDate || null),
     expiry_date: normalizeTimestamp(job.expiry_date || job.expiryDate || null),
     status: job.status || null,
@@ -65,9 +130,33 @@ async function saveJobs(jobs) {
     return { data: [], error, conflict: false };
   }
 
+  const companyKeys = jobs.map((job) => {
+    const source = normalizeCompanyText(job.source) || null;
+    const name = normalizeCompanyText(job.company) || normalizeCompanyText(job.companyName) || normalizeCompanyText(job.company_name) || source;
+    return {
+      key: getCompanyCacheKey(source, name),
+      source,
+      name,
+    };
+  });
+
+  const companyIds = {};
+  for (const companyInfo of companyKeys) {
+    if (!companyInfo.name) {
+      continue;
+    }
+
+    if (!companyIds[companyInfo.key]) {
+      companyIds[companyInfo.key] = await findOrCreateCompanyId(companyInfo.source, companyInfo.name);
+    }
+  }
+
   const payloads = jobs
-    .map(normalizeJobPayload)
-    .filter((p) => p && p.apply_url);
+    .map((job, index) => {
+      const companyId = companyIds[companyKeys[index].key] || null;
+      return normalizeJobPayload(job, companyId);
+    })
+    .filter((p) => p && p.apply_url && p.company_id);
 
   if (payloads.length === 0) {
     const error = new Error('No valid jobs to save.');
