@@ -208,13 +208,16 @@ async function normalizeDetails(data, applyUrl) {
 );
 
 if (pageDetails.bodyText) {
-    const body = pageDetails.bodyText;
-    const index = body.indexOf("DESCRIPTION");
-    if (index >= 0) {
-        details.description = body.substring(index);
-    } else {
-        details.description = body;
+    let body = pageDetails.bodyText;
+    const start = body.search(/Description/i);
+    if (start >= 0) {
+        body = body.substring(start);
     }
+    const end = body.search(/Amazon is an equal opportunity employer/i);
+    if (end > 0) {
+        body = body.substring(0, end);
+    }
+    details.description = body.trim();
 }
 
   return details;
