@@ -164,7 +164,7 @@ async function normalizeDetails(data, applyUrl) {
     experience: extractExperience(apiDescription || ""),
     salary: extractSalary(apiDescription || ""),
     skills: [],
-    work_mode: null,
+    work_mode: "onsite",
   };
 
   const pageDetails = await scrapeJobDetailPage(applyUrl);
@@ -208,7 +208,13 @@ async function normalizeDetails(data, applyUrl) {
 );
 
 if (pageDetails.bodyText) {
-  details.description = pageDetails.bodyText;
+    const body = pageDetails.bodyText;
+    const index = body.indexOf("DESCRIPTION");
+    if (index >= 0) {
+        details.description = body.substring(index);
+    } else {
+        details.description = body;
+    }
 }
 
   return details;
@@ -324,7 +330,7 @@ async function fetchAllSearchJobs() {
         source: SOURCE,
         description: job.description_short || job.description || null,
         posted_date: normalizePostedDate(job.posted_date),
-        work_mode: null,
+        work_mode: "onsite",
         experience: null,
         salary: null,
         employment_type: job.job_schedule_type,
@@ -415,9 +421,8 @@ async function scrapeAmazonJobs(query = '', location = '', fullSync = false) {
     // const saveResult = await saveJobs(jobsToSave);
 
     logger.info(`Saving all enriched jobs: ${enrichmentSummary.enriched.length}`);
-    const jobsToSave =
-    enrichmentSummary.enriched.filter(shouldSaveJob);
-    await saveJobs(jobsToSave);
+
+    await saveJobs(enrichmentSummary.enriched);
     }
   } catch (err) {
     logger.error(`Enrichment failed: ${err.message}`);
