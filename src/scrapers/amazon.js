@@ -17,6 +17,14 @@ const {
   extractSkillsFromText,
   chunkArray,
 } = require('../parsers/common/jobHelpers');
+const { isIndiaJob, isRemoteJob, shouldSaveJob } = require('../parsers/common/jobFilters');
+const {
+  findJobsForSync,
+  buildJobUpdates,
+  saveNewJobs,
+  updateExistingJobs,
+  markRemovedJobs,
+} = require('../parsers/common/jobSyncService');
 
 const DETAIL_CONCURRENCY = 2;
 const DETAIL_DELAY_MIN_MS = 300;
@@ -153,38 +161,6 @@ if (pageDetails.bodyText) {
 }
 
 
-function isIndiaJob(location) {
-  if (!location) return false;
-
-  return location.toLowerCase().includes("india");
-}
-
-function isRemoteJob(job) {
-  const text = `
-    ${job.location || ""}
-    ${job.work_mode || ""}
-    ${job.description || ""}
-  `.toLowerCase();
-
-  return (
-    text.includes("remote") ||
-    text.includes("work from home") ||
-    text.includes("home office")
-  );
-}
-
-function shouldSaveJob(job) {
-  if (isIndiaJob(job.location)) {
-    return true;
-  }
-
-  if (isRemoteJob(job)) {
-    return true;
-  }
-
-  return false;
-}
-
 async function fetchAmazonSearchJobs(offset = 0, limit = 10) {
 
     const params = new URLSearchParams();
@@ -319,20 +295,14 @@ async function scrapeAmazonJobs(query = '', location = '', fullSync = false) {
   const { allJobs, pageCount, totalCount } = await fetchAllSearchJobs(query, location, fullSync);
 
   const applyUrls = allJobs.map((j) => j.apply_url).filter(Boolean);
-  const applyUrlSet = new Set(applyUrls);
 
   const existingResp = await getJobsBySourceAndApplyUrls(SOURCE, applyUrls);
   const existingRows = existingResp.data || [];
-  const existingMap = new Map(existingRows.map((r) => [r.apply_url, r]));
 
   const allSourceResp = await getAllJobsBySource(SOURCE);
   const allSourceRows = allSourceResp.data || [];
 
-  const newJobs = allJobs.filter((j) => !existingMap.has(j.apply_url));
-  const existingMatches = allJobs
-    .filter((j) => existingMap.has(j.apply_url))
-    .map((j) => ({ db: existingMap.get(j.apply_url), search: j }));
-  const removedRows = allSourceRows.filter((r) => !applyUrlSet.has(r.apply_url));
+  const { newJobs, existingMatches, removedRows, removedApplyUrls } = findJobsForSync(allJobs, existingRows, allSourceRows);
 
   logger.info(`Found ${newJobs.length} new, ${existingMatches.length} existing, ${removedRows.length} removed (source total ${allSourceRows.length})`);
 
@@ -346,49 +316,15 @@ async function scrapeAmazonJobs(query = '', location = '', fullSync = false) {
     // logger.info(`Jobs after India/Remote filter: ${jobsToSave.length}`);
     // const saveResult = await saveJobs(jobsToSave);
 
-    logger.info(`Saving all enriched jobs: ${enrichmentSummary.enriched.length}`);
-
-    await saveJobs(enrichmentSummary.enriched);
+    await saveNewJobs(enrichmentSummary, saveJobs, logger);
     }
   } catch (err) {
     logger.error(`Enrichment failed: ${err.message}`);
   }
 
-  const updates = [];
-  for (const pair of existingMatches) {
-    const { db, search } = pair;
-    const changed = {};
-    if ((search.title || '') !== (db.title || '')) changed.title = search.title;
-    if ((search.location || '') !== (db.location || '')) changed.location = search.location;
-    if ((search.work_mode || '') !== (db.work_mode || '')) changed.work_mode = search.work_mode;
-    if ((search.posted_date || '') !== (db.posted_date || '')) changed.posted_date = search.posted_date;
-    if ((search.apply_url || '') !== (db.apply_url || '')) changed.apply_url = search.apply_url;
-    if (db.is_active === false) changed.is_active = true;
-
-    if (Object.keys(changed).length) {
-      changed.id = db.id;
-      updates.push(changed);
-    }
-  }
-
-  if (updates.length) {
-    try {
-      await updateJobs(updates);
-      logger.info(`Updated ${updates.length} existing jobs.`);
-    } catch (err) {
-      logger.error(`Updating existing jobs failed: ${err.message}`);
-    }
-  }
-
-  const removedApplyUrls = removedRows.map((r) => r.apply_url).filter(Boolean);
-  if (removedApplyUrls.length) {
-    try {
-      await markJobsInactive(SOURCE, removedApplyUrls);
-      logger.info(`Marked ${removedApplyUrls.length} removed jobs inactive.`);
-    } catch (err) {
-      logger.error(`Failed to mark removed jobs inactive: ${err.message}`);
-    }
-  }
+  const updates = buildJobUpdates(existingMatches);
+  await updateExistingJobs(updates, updateJobs, logger);
+  await markRemovedJobs(removedRows, markJobsInactive, logger, SOURCE);
 
   logger.info(`Search pages: ${pageCount}`);
   logger.info(`Total jobs: ${allJobs.length}`);
