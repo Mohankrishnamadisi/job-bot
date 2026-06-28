@@ -8,7 +8,25 @@ const { getCompanyByName } = require('../../database/companyRepository');
 
 async function main() {
   try {
-    const config = companies[0];
+    const companyName = process.argv[2];
+
+    if (!companyName) {
+      console.log('Usage: node src/ats/workday/workdayImport.js <companyName>');
+      return;
+    }
+
+    const config = companies.find(
+      (companyConfig) => companyConfig.name.toLowerCase() === companyName.toLowerCase()
+    );
+
+    if (!config) {
+      console.log('Available companies:');
+      companies.forEach((companyConfig) => {
+        console.log(`- ${companyConfig.name}`);
+      });
+      return;
+    }
+
     const company = await getCompanyByName(config.name);
 
     if (!company) {

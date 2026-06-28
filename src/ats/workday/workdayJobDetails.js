@@ -1,6 +1,7 @@
 'use strict';
 
 const axios = require('axios');
+const { buildDetailApi } = require('./workdayUrls');
 
 function normalizeDetailPayload(payload) {
   if (!payload || typeof payload !== 'object') {
@@ -26,7 +27,6 @@ async function fetchJobDetails(config, jobPosting) {
   const job = jobPosting;
   const detailInfo = job.jobPostingInfo && typeof job.jobPostingInfo === 'object' ? job.jobPostingInfo : {};
   const externalPath = detailInfo.externalPath || job.externalPath || null;
-  const cleanPath = externalPath && externalPath.startsWith('/job/') ? externalPath.substring(5) : externalPath;
   const directUrl = job.externalUrl || detailInfo.externalUrl || detailInfo.url || job.url || job.applyUrl || job.apply_url || null;
   const candidates = [];
 
@@ -35,7 +35,7 @@ async function fetchJobDetails(config, jobPosting) {
   }
 
   if (externalPath) {
-    const candidateUrl = `${config.baseUrl}/wday/cxs/nvidia/NVIDIAExternalCareerSite/job/${cleanPath}`;
+    const candidateUrl = buildDetailApi(config, externalPath);
     candidates.push({ method: 'get', url: candidateUrl });
   }
 

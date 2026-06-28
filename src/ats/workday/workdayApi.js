@@ -1,11 +1,10 @@
 'use strict';
 
 const axios = require('axios');
+const { buildSearchApi } = require('./workdayUrls');
 
 async function fetchJobs(config, options = {}) {
-  const baseUrl = config.baseUrl;
-  const apiPath = config.apiPath;
-  const endpoint = `${baseUrl}${apiPath}`;
+  const endpoint = buildSearchApi(config);
 
   const response = await axios.post(endpoint, {
     appliedFacets: {
@@ -19,7 +18,7 @@ async function fetchJobs(config, options = {}) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       Origin: config.baseUrl,
-      Referer: config.baseUrl + '/NVIDIAExternalCareerSite',
+      Referer: `${config.baseUrl}/${config.careerSite || ''}`,
       'User-Agent': 'Mozilla/5.0',
     },
   });
