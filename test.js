@@ -1,11 +1,11 @@
-const { scrapeMicrosoftJobs } = require('./src/scrapers/microsoft');
+const { scrapeAmazonJobs } = require('./src/scrapers/amazon');
 
 async function runTest() {
   const start = Date.now();
 
   try {
-    console.log('Starting Microsoft scraper test...');
-    const { result, stats } = await scrapeMicrosoftJobs("", "India");
+    console.log('Starting Amazon scraper test...');
+    const { result, stats } = await scrapeAmazonJobs();
     const duration = Date.now() - start;
 
     console.log(`\nSearch pages: ${stats.pageCount}`);
