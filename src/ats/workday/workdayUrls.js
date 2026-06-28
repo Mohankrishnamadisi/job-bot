@@ -5,18 +5,17 @@ function normalizePath(externalPath) {
   return externalPath.startsWith('/job/') ? externalPath.substring(5) : externalPath;
 }
 
-function buildSearchApi(config) {
-  if (!config) return null;
-
-  if (config.apiPath) {
-    return `${config.baseUrl}${config.apiPath}`;
-  }
-
+function buildBasePath(config) {
   const tenant = config.tenant || config.company || config.name || '';
   const careerSite = config.careerSite || '';
   const apiVersion = config.apiVersion || 'cxs';
-  const basePath = [apiVersion, tenant, careerSite].filter(Boolean).join('/');
+  return [apiVersion, tenant, careerSite].filter(Boolean).join('/');
+}
 
+function buildSearchApi(config) {
+  if (!config) return null;
+
+  const basePath = buildBasePath(config);
   return `${config.baseUrl}/wday/${basePath}/jobs`;
 }
 
@@ -26,11 +25,7 @@ function buildDetailApi(config, externalPath) {
   const cleanPath = normalizePath(externalPath);
   if (!cleanPath) return null;
 
-  const tenant = config.tenant || config.company || config.name || '';
-  const careerSite = config.careerSite || '';
-  const apiVersion = config.apiVersion || 'cxs';
-  const basePath = [apiVersion, tenant, careerSite].filter(Boolean).join('/');
-
+  const basePath = buildBasePath(config);
   return `${config.baseUrl}/wday/${basePath}/job/${cleanPath}`;
 }
 

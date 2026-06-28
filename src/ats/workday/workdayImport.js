@@ -1,7 +1,7 @@
 'use strict';
 
 const companies = require('./companyConfig');
-const { crawlCompany } = require('./workdayCrawler');
+const { getCrawler } = require('../atsFactory');
 const { mapJob } = require('../../database/jobMapper');
 const { insertJobs } = require('../../database/jobRepository');
 const { getCompanyByName } = require('../../database/companyRepository');
@@ -34,7 +34,8 @@ async function main() {
       return;
     }
 
-    const jobs = await crawlCompany(config);
+    const crawler = getCrawler('workday');
+    const jobs = await crawler(config);
     const mappedJobs = jobs.map((job) => mapJob(company, job));
 
     console.log('Company Name:', company.name);
