@@ -1,11 +1,13 @@
 const { scrapeCompanyJobs } = require('./companyScraper');
 const { scrapeAccentureJobs } = require('./accenture');
+const { scrapeWiproJobs } = require('./wipro');
 const logger = require('../utils/logger');
 
 const SCRAPER_REGISTRY = {
   accenture: scrapeAccentureJobs,
   amazon: async () => [],
   microsoft: async () => [],
+  wipro: scrapeWiproJobs,
 };
 
 async function runScrapers(urls = []) {

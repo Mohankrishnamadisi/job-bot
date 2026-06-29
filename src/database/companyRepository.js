@@ -7,6 +7,7 @@ const DEFAULT_CAREER_URLS = {
   amazon: 'https://www.amazon.jobs/en',
   microsoft: 'https://careers.microsoft.com/us/en/search-results',
   accenture: 'https://www.accenture.com/us-en/careers',
+  wipro: 'https://careers.wipro.com/',
 };
 
 function getDefaultCareerUrl(name) {
