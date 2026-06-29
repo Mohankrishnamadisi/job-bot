@@ -4,11 +4,20 @@ function findJobsForSync(allJobs, existingRows, allSourceRows) {
   const applyUrls = (allJobs || []).map((j) => j.apply_url).filter(Boolean);
   const applyUrlSet = new Set(applyUrls);
   const existingMap = new Map((existingRows || []).map((r) => [r.apply_url, r]));
+  const sourceMap = new Map((allSourceRows || []).map((r) => [r.apply_url, r]));
 
-  const newJobs = (allJobs || []).filter((j) => !existingMap.has(j.apply_url));
-  const existingMatches = (allJobs || [])
-    .filter((j) => existingMap.has(j.apply_url))
-    .map((j) => ({ db: existingMap.get(j.apply_url), search: j }));
+  const newJobs = [];
+  const existingMatches = [];
+
+  for (const job of allJobs || []) {
+    const match = existingMap.get(job.apply_url) || sourceMap.get(job.apply_url);
+    if (match) {
+      existingMatches.push({ db: match, search: job });
+    } else {
+      newJobs.push(job);
+    }
+  }
+
   const removedRows = (allSourceRows || []).filter((r) => !applyUrlSet.has(r.apply_url));
 
   return {
@@ -43,7 +52,7 @@ function buildJobUpdates(existingMatches) {
 async function saveNewJobs(enrichmentSummary, saveJobs, logger) {
   if (!enrichmentSummary || !enrichmentSummary.enriched || !enrichmentSummary.enriched.length) return;
 
-  logger.info(`Saving all enriched jobs: ${enrichmentSummary.enriched.length}`);
+  logger.info(`Jobs inserted: ${enrichmentSummary.enriched.length}`);
   await saveJobs(enrichmentSummary.enriched);
 }
 
@@ -52,9 +61,9 @@ async function updateExistingJobs(updates, updateJobs, logger) {
 
   try {
     await updateJobs(updates);
-    logger.info(`Updated ${updates.length} existing jobs.`);
+    logger.info(`Jobs updated: ${updates.length}`);
   } catch (err) {
-    logger.error(`Updating existing jobs failed: ${err.message}`);
+    logger.error(`Jobs update failed: ${err.message}`);
   }
 }
 
@@ -64,9 +73,9 @@ async function markRemovedJobs(removedRows, markJobsInactive, logger, source) {
 
   try {
     await markJobsInactive(source, removedApplyUrls);
-    logger.info(`Marked ${removedApplyUrls.length} removed jobs inactive.`);
+    logger.info(`Jobs marked inactive: ${removedApplyUrls.length}`);
   } catch (err) {
-    logger.error(`Failed to mark removed jobs inactive: ${err.message}`);
+    logger.error(`Jobs mark inactive failed: ${err.message}`);
   }
 
   return removedApplyUrls;

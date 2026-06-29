@@ -1,6 +1,19 @@
 'use strict';
 
 const supabase = require('./supabaseClient');
+const logger = require('../utils/logger');
+
+const DEFAULT_CAREER_URLS = {
+  amazon: 'https://www.amazon.jobs/en',
+  microsoft: 'https://careers.microsoft.com/us/en/search-results',
+  accenture: 'https://www.accenture.com/us-en/careers',
+};
+
+function getDefaultCareerUrl(name) {
+  const normalizedName = String(name || '').trim().toLowerCase();
+  if (!normalizedName) return 'https://example.com/careers';
+  return DEFAULT_CAREER_URLS[normalizedName] || `https://www.${normalizedName.replace(/\s+/g, '-')}.com/careers`;
+}
 
 async function getCompanyByName(name) {
   const { data, error } = await supabase
@@ -29,7 +42,46 @@ async function getEnabledCompanies() {
   return data || [];
 }
 
+async function ensureCompany(companyData) {
+  if (!companyData || !companyData.name) {
+    return null;
+  }
+
+  const payload = {
+    name: companyData.name.trim(),
+    enabled: companyData.enabled !== false,
+    career_url: companyData.career_url || companyData.careerUrl || companyData.url || getDefaultCareerUrl(companyData.name),
+  };
+
+  const existing = await getCompanyByName(payload.name);
+  if (existing) {
+    logger.info(`ensureCompany reused existing company for "${payload.name}"`);
+    return existing;
+  }
+
+  const { data, error } = await supabase
+    .from('companies')
+    .insert([payload])
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    logger.error(`Supabase ensureCompany failed for "${payload.name}": ${error.message}`);
+    if (error.details) {
+      logger.error(`Supabase ensureCompany details: ${error.details}`);
+    }
+    if (error.hint) {
+      logger.error(`Supabase ensureCompany hint: ${error.hint}`);
+    }
+    return null;
+  }
+
+  logger.info(`ensureCompany created company for "${payload.name}"`);
+  return data;
+}
+
 module.exports = {
   getCompanyByName,
   getEnabledCompanies,
+  ensureCompany,
 };

@@ -1,9 +1,24 @@
 'use strict';
 
-function isIndiaJob(location) {
-  if (!location) return false;
+function normalizeText(value) {
+  if (value == null) return '';
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '')).join(' ');
+  }
+  return String(value);
+}
 
-  return location.toLowerCase().includes('india');
+function isIndiaJob(job) {
+  if (!job) return false;
+
+  const text = normalizeText([
+    job.country,
+    job.location,
+    job.description,
+    job.title,
+  ]).toLowerCase();
+
+  return text.includes('india');
 }
 
 function isRemoteJob(job) {
@@ -21,7 +36,7 @@ function isRemoteJob(job) {
 }
 
 function shouldSaveJob(job) {
-  if (isIndiaJob(job.location)) {
+  if (isIndiaJob(job)) {
     return true;
   }
 
