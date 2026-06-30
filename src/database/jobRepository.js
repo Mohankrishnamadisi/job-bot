@@ -2,6 +2,7 @@
 
 const supabase = require('./supabaseClient');
 const logger = require('../utils/logger');
+const { getCompanyByName, ensureCompany } = require('./companyRepository');
 
 const REQUIRED_JOB_COLUMNS = ['company_id', 'title', 'apply_url'];
 
@@ -29,33 +30,54 @@ function normalizeJobPayload(job) {
   };
 }
 
-async function getCompanyIdByName(name) {
-  const companyName = String(name || '').trim();
-  if (!companyName) return null;
-
-  const { data, error } = await supabase
-    .from('companies')
-    .select('id')
-    .eq('name', companyName)
-    .maybeSingle();
-
-  if (error) {
+async function resolveCompanyIdForJob(job, repository = { getCompanyByName, ensureCompany }) {
+  if (!job || typeof job !== 'object') {
     return null;
   }
 
-  return data?.id || null;
+  if (job.company_id) {
+    return job.company_id;
+  }
+
+  const companyName = String(job.company || job.company_name || job.source || '').trim();
+  if (!companyName) {
+    logger.warn('Company resolution skipped because no company name was available');
+    return null;
+  }
+
+  const existingCompany = await repository.getCompanyByName(companyName);
+  if (existingCompany?.id) {
+    logger.info(`Company Found: ${companyName} -> ${existingCompany.id}`);
+    return existingCompany.id;
+  }
+
+  const createdCompany = await repository.ensureCompany({
+    name: companyName,
+    enabled: true,
+    career_url: null,
+  });
+
+  if (createdCompany?.id) {
+    logger.info(`Company Created: ${companyName} -> ${createdCompany.id}`);
+    return createdCompany.id;
+  }
+
+  logger.warn(`Company resolution failed for ${companyName}`);
+  return null;
 }
 
 async function prepareJobsForInsert(jobs) {
   const preparedJobs = [];
+  const inputJobs = Array.isArray(jobs) ? jobs : [];
 
-  for (const job of jobs || []) {
+  for (const job of inputJobs) {
     const normalizedJob = normalizeJobPayload(job);
-    if (!normalizedJob) continue;
+    if (!normalizedJob) {
+      continue;
+    }
 
     if (!normalizedJob.company_id) {
-      const companyName = (job.company || job.company_name || job.source || '').toString().trim() || 'Accenture';
-      const companyId = await getCompanyIdByName(companyName);
+      const companyId = await resolveCompanyIdForJob(job);
       if (companyId) {
         normalizedJob.company_id = companyId;
       } else {
@@ -82,21 +104,62 @@ async function insertJobs(jobs) {
   const preparedJobs = await prepareJobsForInsert(jobs);
 
   if (!preparedJobs.length) {
-    return { data: [], error: null };
+    return { data: [], error: null, stats: { fetched: Array.isArray(jobs) ? jobs.length : 0, prepared: 0, inserted: 0, skippedDuplicates: 0, failed: 0 } };
   }
 
-  const { data, error } = await supabase.from('jobs').insert(preparedJobs).select('id');
+  try {
+    const { data, error } = await supabase
+      .from('jobs')
+      .upsert(preparedJobs, { onConflict: 'apply_url' })
+      .select('id,apply_url');
 
-  if (error) {
-    logger.error(`Jobs insert failed: ${error.message}`);
-    if (error.details) {
-      logger.error(`Jobs insert details: ${error.details}`);
+    if (error) {
+      logger.error(`Jobs insert failed: ${error.message}`);
+      if (error.details) {
+        logger.error(`Jobs insert details: ${error.details}`);
+      }
+      return {
+        data: null,
+        error,
+        stats: {
+          fetched: Array.isArray(jobs) ? jobs.length : 0,
+          prepared: preparedJobs.length,
+          inserted: 0,
+          skippedDuplicates: 0,
+          failed: preparedJobs.length,
+        },
+      };
     }
-  } else {
-    logger.info(`Jobs inserted: ${data?.length ?? 0}`);
-  }
 
-  return { data, error };
+    const insertedRows = Array.isArray(data) ? data : [];
+    const insertedApplyUrls = new Set(insertedRows.map((row) => row?.apply_url).filter(Boolean));
+    const skippedDuplicates = preparedJobs.filter((job) => !insertedApplyUrls.has(job.apply_url)).length;
+
+    return {
+      data: insertedRows,
+      error: null,
+      stats: {
+        fetched: Array.isArray(jobs) ? jobs.length : 0,
+        prepared: preparedJobs.length,
+        inserted: insertedRows.length,
+        skippedDuplicates,
+        failed: 0,
+      },
+    };
+  } catch (error) {
+    logger.error(`Jobs insert failed: ${error.message}`);
+    return {
+      data: null,
+      error,
+      stats: {
+        fetched: Array.isArray(jobs) ? jobs.length : 0,
+        prepared: preparedJobs.length,
+        inserted: 0,
+        skippedDuplicates: 0,
+        failed: preparedJobs.length,
+      },
+    };
+  }
 }
 
 async function upsertJobs(jobs) {
@@ -164,4 +227,5 @@ module.exports = {
   saveJobs,
   updateJobs,
   markJobsInactive,
+  resolveCompanyIdForJob,
 };

@@ -17,13 +17,19 @@ function getDefaultCareerUrl(name) {
 }
 
 async function getCompanyByName(name) {
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('companies')
     .select('*')
-    .eq('name', name)
+    .ilike('name', normalizedName)
     .maybeSingle();
 
   if (error) {
+    logger.warn(`Company lookup failed for "${normalizedName}": ${error.message}`);
     return null;
   }
 

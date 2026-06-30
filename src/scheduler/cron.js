@@ -4,6 +4,7 @@ const { companyCareerUrls } = require('../config/env');
 const { runScrapers } = require('../scrapers');
 const { deduplicateJobs } = require('../services/duplicateService');
 const { saveJobs } = require('../database/jobRepository');
+const { importArbeitnowJobs } = require('../services/jobs/fetchArbeitnowJobs');
 
 const JOB_SCHEDULES = ['0 8 * * *', '0 13 * * *', '0 18 * * *'];
 
@@ -28,6 +29,13 @@ function deduplicateScrapedJobs(jobs) {
 
 async function runJobPipeline() {
   logger.info('Starting scheduled job pipeline');
+
+  try {
+    const arbeitnowStats = await importArbeitnowJobs({ maxPages: process.env.ARBEITNOW_MAX_PAGES || 5 });
+    logger.info(`Arbeitnow import stats: fetched=${arbeitnowStats.fetched}, inserted=${arbeitnowStats.inserted}, skipped=${arbeitnowStats.skipped}, failed=${arbeitnowStats.failed}`);
+  } catch (error) {
+    logger.error(`Arbeitnow import failed: ${error.message}`);
+  }
 
   if (!Array.isArray(companyCareerUrls) || companyCareerUrls.length === 0) {
     logger.warn('No company career URLs configured for scheduler');
